@@ -1,0 +1,40 @@
+{
+  "name": "@facet/openapi-importer",
+  "version": "0.1.0",
+  "description": "Hostile-input OpenAPI ingestion and normalization service for FACET.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "format": "prettier --write src test package.json tsconfig.json tsconfig.build.json eslint.config.mjs",
+    "format:check": "prettier --check src test package.json tsconfig.json tsconfig.build.json eslint.config.mjs",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "npm": ">=11.6.2 <12"
+  },
+  "packageManager": "npm@11.6.2",
+  "dependencies": {
+    "fastify": "5.12.8",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "26.6.6",
+    "eslint": "9.39.5",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
+  }
+}
