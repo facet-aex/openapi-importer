@@ -1,6 +1,7 @@
 # openapi-importer instructions
 
 - This is a standalone repository. It must install, build and run without parent/sibling configuration or source imports.
+- Use npm only. Commit this repository's `package-lock.json`; do not join a parent workspace.
 - Treat every URL, redirect, DNS answer, YAML alias, `$ref`, extension and example as hostile.
 - Implement upload and paste even when URL import exists.
 - Apply IPv4/IPv6, DNS rebinding, redirect, byte, time, alias, reference-depth/count and operation-count limits.
