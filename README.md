@@ -16,4 +16,6 @@ npm ci
 npm run dev
 ```
 
-`POST /v1/imports/parse` accepts pasted content or file content supplied by the caller and returns normalized operation candidates. The URL network-policy layer validates HTTPS, credentials, ports, hostnames and every IPv4/IPv6 DNS answer; transport, redirect handling and remote `$ref` resolution remain disabled until the isolated fetcher is complete. Run `npm run verify` before committing.
+`POST /v1/imports/parse` accepts pasted/uploaded content or an HTTPS URL and returns normalized operation candidates plus source provenance (`sha256`, byte count and URL fetch metadata). URL requests validate credentials, ports, hostnames and every IPv4/IPv6 DNS answer, pin the checked address, revalidate every redirect, reject compression, and enforce one total timeout and byte budget.
+
+The local process boundary is not a production network sandbox. Before public deployment, run this service behind an explicit egress policy. Remote `$ref` resolution remains disabled; references are recorded as warnings until the shared fetch budget and provenance model are implemented. Run `npm run verify` before committing.

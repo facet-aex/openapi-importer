@@ -124,7 +124,7 @@ export function parseSafeHttpsUrl(value: string): URL {
 }
 
 const defaultResolver: HostnameResolver = async (hostname) => {
-  const answers = await nodeLookup(hostname, { all: true, verbatim: true });
+  const answers = await nodeLookup(hostname, { all: true, order: "verbatim" });
   return answers.map(({ address, family }) => ({
     address,
     family: family as 4 | 6,

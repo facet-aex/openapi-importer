@@ -1,18 +1,29 @@
+import { createHash } from "node:crypto";
+
 import Fastify, { type FastifyInstance } from "fastify";
 
 import type { ImporterConfig } from "./config.js";
 import { ImportError } from "./import-error.js";
 import { parseOpenApiDocument } from "./parser.js";
+import { fetchRemoteOpenApi } from "./remote-fetcher.js";
 
 interface ParseRequestBody {
   source?: {
-    kind?: "paste" | "upload";
+    kind?: "paste" | "upload" | "url";
     content?: string;
     filename?: string;
+    url?: string;
   };
 }
 
-export function buildApp(config: ImporterConfig): FastifyInstance {
+export interface ImporterAppDependencies {
+  fetchRemote?: typeof fetchRemoteOpenApi;
+}
+
+export function buildApp(
+  config: ImporterConfig,
+  dependencies: ImporterAppDependencies = {},
+): FastifyInstance {
   const app = Fastify({
     logger: config.NODE_ENV !== "test",
     requestIdHeader: "x-request-id",
@@ -28,24 +39,55 @@ export function buildApp(config: ImporterConfig): FastifyInstance {
 
   app.post<{ Body: ParseRequestBody }>("/v1/imports/parse", async (request) => {
     const source = request.body?.source;
-    if (
-      !source ||
-      (source.kind !== "paste" && source.kind !== "upload") ||
-      typeof source.content !== "string"
+    if (!source) {
+      throw new ImportError("INVALID_SOURCE", "A source is required.");
+    }
+
+    let content: string;
+    let sourceMetadata: Record<string, unknown>;
+    if (source.kind === "url" && typeof source.url === "string") {
+      const fetched = await (dependencies.fetchRemote ?? fetchRemoteOpenApi)(
+        source.url,
+        {
+          maxDocumentBytes: config.IMPORTER_MAX_DOCUMENT_BYTES,
+          maxRedirects: config.IMPORTER_MAX_REDIRECTS,
+          timeoutMs: config.IMPORTER_TIMEOUT_MS,
+        },
+      );
+      content = fetched.content;
+      sourceMetadata = {
+        kind: "url",
+        sha256: fetched.sha256,
+        byteLength: fetched.byteLength,
+        mediaType: fetched.mediaType,
+        finalUrl: fetched.finalUrl,
+        redirectCount: fetched.redirectCount,
+      };
+    } else if (
+      (source.kind === "paste" || source.kind === "upload") &&
+      typeof source.content === "string"
     ) {
+      content = source.content;
+      sourceMetadata = {
+        kind: source.kind,
+        sha256: createHash("sha256").update(content, "utf8").digest("hex"),
+        byteLength: Buffer.byteLength(content, "utf8"),
+      };
+    } else {
       throw new ImportError(
         "INVALID_SOURCE",
-        "source.kind must be paste or upload and source.content must be a string.",
+        "Use url with source.url, or paste/upload with source.content.",
       );
     }
 
-    return parseOpenApiDocument(source.content, {
+    const parsed = parseOpenApiDocument(content, {
       maxDocumentBytes: config.IMPORTER_MAX_DOCUMENT_BYTES,
       maxYamlAliases: config.IMPORTER_MAX_YAML_ALIASES,
       maxReferenceDepth: config.IMPORTER_MAX_REFERENCE_DEPTH,
       maxReferenceCount: config.IMPORTER_MAX_REFERENCE_COUNT,
       maxOperationCount: config.IMPORTER_MAX_OPERATION_COUNT,
     });
+    return { ...parsed, source: sourceMetadata };
   });
 
   app.setErrorHandler((error, request, reply) => {

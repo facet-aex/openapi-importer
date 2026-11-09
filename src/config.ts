@@ -19,6 +19,7 @@ const environmentSchema = z.object({
     .min(0)
     .max(100)
     .default(20),
+  IMPORTER_MAX_REDIRECTS: z.coerce.number().int().min(0).max(10).default(3),
   IMPORTER_MAX_REFERENCE_DEPTH: z.coerce
     .number()
     .int()
@@ -37,6 +38,12 @@ const environmentSchema = z.object({
     .positive()
     .max(2_000)
     .default(500),
+  IMPORTER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(60_000)
+    .default(10_000),
 });
 
 export type ImporterConfig = z.infer<typeof environmentSchema>;
