@@ -41,43 +41,139 @@ function readString(value: unknown): string | undefined {
     : undefined;
 }
 
-const omittedSchemaKeywords = new Set(["example", "examples", "default"]);
-
-function normalizeSchema(value: unknown): JsonSchema {
-  if (typeof value === "boolean") return value;
-  if (!isObject(value)) return {};
-
-  const nullable = value.nullable === true;
-  const normalized: JsonObject = {};
-  for (const [key, child] of Object.entries(value)) {
-    if (
-      key === "nullable" ||
-      key.toLowerCase().startsWith("x-") ||
-      omittedSchemaKeywords.has(key)
-    )
-      continue;
-    if (Array.isArray(child)) {
-      normalized[key] = child.map((item) =>
-        isObject(item) || Array.isArray(item) ? normalizeNested(item) : item,
-      );
-    } else if (isObject(child)) {
-      normalized[key] = normalizeNested(child);
-    } else {
-      normalized[key] = child;
-    }
+function resolveJsonPointer(document: JsonObject, reference: string): unknown {
+  if (!reference.startsWith("#")) return undefined;
+  let fragment: string;
+  try {
+    fragment = decodeURIComponent(reference.slice(1));
+  } catch {
+    return undefined;
   }
-  return nullable ? { anyOf: [normalized, { type: "null" }] } : normalized;
+  if (fragment === "") return document;
+  if (!fragment.startsWith("/")) return undefined;
+  let current: unknown = document;
+  for (const encodedSegment of fragment.slice(1).split("/")) {
+    if (!isObject(current) && !Array.isArray(current)) return undefined;
+    const segment = encodedSegment.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (!Object.prototype.hasOwnProperty.call(current, segment))
+      return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
 }
 
-function normalizeNested(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeNested);
-  if (!isObject(value)) return value;
-  return normalizeSchema(value);
+function definitionName(reference: string, used: Map<string, string>): string {
+  const fragment = reference.slice(reference.lastIndexOf("/") + 1);
+  let decoded = fragment;
+  try {
+    decoded = decodeURIComponent(fragment);
+  } catch {
+    // Keep the encoded fragment; it is still safe to normalize below.
+  }
+  const base =
+    decoded
+      .replaceAll("~1", "/")
+      .replaceAll("~0", "~")
+      .replace(/[^A-Za-z0-9._-]+/gu, "_")
+      .replace(/^_+|_+$/gu, "") || "schema";
+  if (!used.has(base) || used.get(base) === reference) return base;
+  let suffix = 2;
+  while (used.has(`${base}_${suffix}`)) suffix += 1;
+  return `${base}_${suffix}`;
+}
+
+function resolveReferencedObject(
+  document: JsonObject,
+  value: unknown,
+  seen = new Set<string>(),
+): JsonObject | undefined {
+  if (!isObject(value)) return undefined;
+  const reference = readString(value.$ref);
+  if (!reference) return value;
+  if (seen.has(reference)) return undefined;
+  const target = resolveJsonPointer(document, reference);
+  if (!isObject(target)) return undefined;
+  seen.add(reference);
+  return resolveReferencedObject(document, target, seen);
+}
+
+const omittedSchemaKeywords = new Set(["example", "examples", "default"]);
+
+function normalizeSchemaClosure(
+  value: unknown,
+  document: JsonObject,
+  warnings: OperationWarning[],
+): JsonSchema {
+  const definitions = new Map<string, JsonSchema>();
+  const referenceNames = new Map<string, string>();
+  const usedNames = new Map<string, string>();
+
+  const schemaNameMaps = new Set([
+    "$defs",
+    "definitions",
+    "properties",
+    "patternProperties",
+    "dependentSchemas",
+  ]);
+  const normalize = (current: unknown, isNameMap = false): unknown => {
+    if (Array.isArray(current)) return current.map((item) => normalize(item));
+    if (!isObject(current)) return current;
+
+    const nullable = current.nullable === true;
+    const normalized: JsonObject = {};
+    for (const [key, child] of Object.entries(current)) {
+      if (
+        !isNameMap &&
+        (key === "nullable" ||
+          key.toLowerCase().startsWith("x-") ||
+          omittedSchemaKeywords.has(key))
+      )
+        continue;
+      if (key === "$ref" && typeof child === "string") {
+        const target = resolveJsonPointer(document, child);
+        if (target === undefined) {
+          warnings.push({
+            code: "UNRESOLVED_SCHEMA_REFERENCE",
+            message:
+              "A schema reference could not be included in the candidate closure.",
+          });
+          continue;
+        }
+        let name = referenceNames.get(child);
+        if (!name) {
+          name = definitionName(child, usedNames);
+          referenceNames.set(child, name);
+          usedNames.set(name, child);
+          definitions.set(name, {});
+          const definition = normalize(target);
+          definitions.set(
+            name,
+            typeof definition === "boolean" || isObject(definition)
+              ? definition
+              : {},
+          );
+        }
+        normalized.$ref = `#/$defs/${name}`;
+      } else {
+        normalized[key] = normalize(child, schemaNameMaps.has(key));
+      }
+    }
+    return nullable ? { anyOf: [normalized, { type: "null" }] } : normalized;
+  };
+
+  const root = normalize(value);
+  const normalizedRoot: JsonSchema =
+    typeof root === "boolean" || isObject(root) ? root : {};
+  if (definitions.size === 0 || typeof normalizedRoot === "boolean") {
+    return normalizedRoot;
+  }
+  normalizedRoot.$defs = Object.fromEntries(definitions);
+  return normalizedRoot;
 }
 
 function readContentSchema(content: unknown): {
   mediaType?: string;
-  schema?: JsonSchema;
+  schema?: unknown;
 } {
   if (!isObject(content)) return {};
   const entries = Object.entries(content).filter(([, media]) =>
@@ -92,12 +188,13 @@ function readContentSchema(content: unknown): {
   if (!selected) return {};
   const [mediaType, media] = selected as [string, JsonObject];
   if (!("schema" in media)) return { mediaType };
-  return { mediaType, schema: normalizeSchema(media.schema) };
+  return { mediaType, schema: media.schema };
 }
 
 const parameterLocations = ["path", "query", "header", "cookie"] as const;
 
 function normalizeInput(
+  document: JsonObject,
   pathItem: JsonObject,
   operation: JsonObject,
   warnings: OperationWarning[],
@@ -106,19 +203,18 @@ function normalizeInput(
   for (const parameters of [pathItem.parameters, operation.parameters]) {
     if (!Array.isArray(parameters)) continue;
     for (const parameter of parameters) {
-      if (!isObject(parameter)) continue;
-      if (typeof parameter.$ref === "string") {
+      const resolvedParameter = resolveReferencedObject(document, parameter);
+      if (!resolvedParameter) {
         warnings.push({
           code: "UNRESOLVED_PARAMETER_REFERENCE",
-          message:
-            "A referenced parameter requires schema-closure normalization.",
+          message: "A referenced parameter could not be resolved safely.",
         });
         continue;
       }
-      const location = readString(parameter.in);
-      const name = readString(parameter.name);
+      const location = readString(resolvedParameter.in);
+      const name = readString(resolvedParameter.name);
       if (!location || !name) continue;
-      merged.set(`${location}\u0000${name}`, parameter);
+      merged.set(`${location}\u0000${name}`, resolvedParameter);
     }
   }
 
@@ -132,8 +228,7 @@ function normalizeInput(
       const name = readString(parameter.name);
       if (!name) continue;
       const contentSchema = readContentSchema(parameter.content).schema;
-      namespaceProperties[name] =
-        contentSchema ?? normalizeSchema(parameter.schema);
+      namespaceProperties[name] = contentSchema ?? parameter.schema ?? {};
       if (location === "path" || parameter.required === true)
         required.push(name);
     }
@@ -148,18 +243,20 @@ function normalizeInput(
   }
 
   if (isObject(operation.requestBody)) {
-    if (typeof operation.requestBody.$ref === "string") {
+    const requestBody = resolveReferencedObject(
+      document,
+      operation.requestBody,
+    );
+    if (!requestBody) {
       warnings.push({
         code: "UNRESOLVED_REQUEST_BODY_REFERENCE",
-        message:
-          "A referenced request body requires schema-closure normalization.",
+        message: "A referenced request body could not be resolved safely.",
       });
     } else {
-      const body = readContentSchema(operation.requestBody.content);
+      const body = readContentSchema(requestBody.content);
       if (body.schema !== undefined) {
         properties.body = body.schema;
-        if (operation.requestBody.required === true)
-          requiredNamespaces.push("body");
+        if (requestBody.required === true) requiredNamespaces.push("body");
       } else {
         warnings.push({
           code: "MISSING_REQUEST_BODY_SCHEMA",
@@ -169,12 +266,18 @@ function normalizeInput(
     }
   }
 
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties,
-    ...(requiredNamespaces.length > 0 ? { required: requiredNamespaces } : {}),
-  };
+  return normalizeSchemaClosure(
+    {
+      type: "object",
+      additionalProperties: false,
+      properties,
+      ...(requiredNamespaces.length > 0
+        ? { required: requiredNamespaces }
+        : {}),
+    },
+    document,
+    warnings,
+  );
 }
 
 function statusRank(status: string): number {
@@ -184,6 +287,7 @@ function statusRank(status: string): number {
 }
 
 function normalizeResponses(
+  document: JsonObject,
   operation: JsonObject,
   warnings: OperationWarning[],
 ): {
@@ -201,10 +305,14 @@ function normalizeResponses(
   let outputSchema: JsonSchema = {};
   let successMediaType: string | undefined;
   if (success) {
-    const response = success[1] as JsonObject;
-    if (typeof response.$ref !== "string") {
+    const response = resolveReferencedObject(document, success[1]);
+    if (response) {
       const selected = readContentSchema(response.content);
-      outputSchema = selected.schema ?? {};
+      outputSchema = normalizeSchemaClosure(
+        selected.schema ?? {},
+        document,
+        warnings,
+      );
       successMediaType = selected.mediaType;
     }
   }
@@ -220,9 +328,12 @@ function normalizeResponses(
     .filter(([status]) => /^(?:[45](?:\d{2}|XX)|default)$/iu.test(status))
     .sort(([left], [right]) => statusRank(left) - statusRank(right));
   const errorSchemas = errors.flatMap(([, response]) => {
-    if (typeof (response as JsonObject).$ref === "string") return [];
-    const schema = readContentSchema((response as JsonObject).content).schema;
-    return schema === undefined ? [] : [schema];
+    const resolved = resolveReferencedObject(document, response);
+    if (!resolved) return [];
+    const schema = readContentSchema(resolved.content).schema;
+    return schema === undefined
+      ? []
+      : [normalizeSchemaClosure(schema, document, warnings)];
   });
   const errorSchema: JsonSchema =
     errorSchemas.length === 0
@@ -300,7 +411,10 @@ function normalizeAuth(
     return [
       {
         schemes: Object.keys(requirement).map((schemeName) => {
-          const definition = definitions[schemeName];
+          const definition = resolveReferencedObject(
+            document,
+            definitions[schemeName],
+          );
           const sourceType = isObject(definition)
             ? readString(definition.type)
             : undefined;
@@ -352,11 +466,20 @@ export function normalizeOperation(input: {
   operation: JsonObject;
 }): { normalized: NormalizedOperation; warnings: OperationWarning[] } {
   const warnings: OperationWarning[] = [];
-  const responses = normalizeResponses(input.operation, warnings);
+  const responses = normalizeResponses(
+    input.document,
+    input.operation,
+    warnings,
+  );
   const description = readString(input.operation.description);
   const normalized: NormalizedOperation = {
     ...(description ? { description } : {}),
-    inputSchema: normalizeInput(input.pathItem, input.operation, warnings),
+    inputSchema: normalizeInput(
+      input.document,
+      input.pathItem,
+      input.operation,
+      warnings,
+    ),
     outputSchema: responses.outputSchema,
     errorSchema: responses.errorSchema,
     servers: normalizeServers(

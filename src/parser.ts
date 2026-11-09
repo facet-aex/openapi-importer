@@ -135,6 +135,13 @@ export function parseOpenApiDocument(
     );
   }
 
+  return parseResolvedOpenApiDocument(document, limits);
+}
+
+export function parseResolvedOpenApiDocument(
+  document: unknown,
+  limits: ParseLimits,
+): ParseResult {
   if (!isObject(document)) {
     throw new ImportError(
       "INVALID_OPENAPI",

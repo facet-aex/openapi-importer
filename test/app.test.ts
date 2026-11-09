@@ -89,6 +89,73 @@ paths:
     expect(result.json().snapshot.content).toBe(content);
   });
 
+  it("normalizes remote schema references into candidate-local definitions", async () => {
+    const root = `openapi: 3.1.0
+info: { title: Remote schema, version: "1" }
+paths:
+  /items:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "https://schemas.example/item.yaml#/Item" }
+`;
+    app = buildApp(config, {
+      fetchRemote: async (url) => {
+        if (url === "https://source.example/openapi.yaml") {
+          return {
+            content: root,
+            mediaType: "application/yaml",
+            byteLength: Buffer.byteLength(root),
+            finalUrl: url,
+            redirectCount: 0,
+            sha256: "a".repeat(64),
+          };
+        }
+        const content = `Item:
+  type: object
+  properties:
+    id: { type: string }
+`;
+        return {
+          content,
+          mediaType: "application/yaml",
+          byteLength: Buffer.byteLength(content),
+          finalUrl: url,
+          redirectCount: 0,
+          sha256: "b".repeat(64),
+        };
+      },
+    });
+
+    const result = await app.inject({
+      method: "POST",
+      url: "/v1/imports/parse",
+      payload: {
+        source: {
+          kind: "url",
+          url: "https://source.example/openapi.yaml",
+        },
+      },
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(result.json().candidates[0]).toMatchObject({
+      normalized: {
+        outputSchema: {
+          type: "object",
+          properties: { id: { type: "string" } },
+        },
+      },
+      warnings: [],
+    });
+    expect(JSON.stringify(result.json().candidates[0])).not.toContain(
+      "schemas.example",
+    );
+  });
+
   it("applies stricter job limits but rejects limits above deployment policy", async () => {
     app = buildApp(config);
     const content =

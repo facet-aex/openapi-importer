@@ -5,7 +5,10 @@ import { z } from "zod";
 
 import type { ImporterConfig } from "./config.js";
 import { ImportError } from "./import-error.js";
-import { parseOpenApiDocument } from "./parser.js";
+import {
+  parseOpenApiDocument,
+  parseResolvedOpenApiDocument,
+} from "./parser.js";
 import { resolveOpenApiReferences } from "./reference-resolver.js";
 import { fetchRemoteOpenApi } from "./remote-fetcher.js";
 
@@ -132,13 +135,14 @@ export function buildApp(
       );
     }
 
-    const parsed = parseOpenApiDocument(content, {
+    const parseLimits = {
       maxDocumentBytes: limits.maxDocumentBytes,
       maxYamlAliases: limits.maxYamlAliases,
       maxReferenceDepth: limits.maxReferenceDepth,
       maxReferenceCount: limits.maxReferenceCount,
       maxOperationCount: limits.maxOperationCount,
-    });
+    };
+    parseOpenApiDocument(content, parseLimits);
     const references = await resolveOpenApiReferences(
       {
         content,
@@ -147,6 +151,10 @@ export function buildApp(
         limits,
       },
       dependencies.fetchRemote ?? fetchRemoteOpenApi,
+    );
+    const parsed = parseResolvedOpenApiDocument(
+      references.document,
+      parseLimits,
     );
     return {
       ...parsed,

@@ -12,6 +12,7 @@ import {
 type FetchRemote = typeof fetchRemoteOpenApi;
 
 export interface ReferenceResolutionResult {
+  document: Record<string, unknown>;
   referenceCount: number;
   remoteDocumentCount: number;
   totalByteLength: number;
@@ -116,7 +117,7 @@ export async function resolveOpenApiReferences(
 
   try {
     const parser = new $RefParser<Record<string, unknown>>();
-    await parser.bundle(rootUrl, root, {
+    const document = await parser.bundle(rootUrl, root, {
       mutateInputSchema: false,
       continueOnError: false,
       parse: {
@@ -210,6 +211,23 @@ export async function resolveOpenApiReferences(
         circular: "ignore",
       },
     });
+
+    return {
+      document,
+      referenceCount,
+      remoteDocumentCount: remoteDocuments.size,
+      totalByteLength,
+      warnings:
+        remoteDocuments.size > 0
+          ? [
+              {
+                code: "REMOTE_REFERENCES_RESOLVED",
+                message:
+                  "Remote references were resolved through the isolated fetch policy.",
+              },
+            ]
+          : [],
+    };
   } catch (error) {
     if (error instanceof ImportError) throw error;
     const unwrapped = unwrapResolverImportError(error);
@@ -228,20 +246,4 @@ export async function resolveOpenApiReferences(
       "The OpenAPI reference graph could not be resolved safely.",
     );
   }
-
-  return {
-    referenceCount,
-    remoteDocumentCount: remoteDocuments.size,
-    totalByteLength,
-    warnings:
-      remoteDocuments.size > 0
-        ? [
-            {
-              code: "REMOTE_REFERENCES_RESOLVED",
-              message:
-                "Remote references were resolved through the isolated fetch policy.",
-            },
-          ]
-        : [],
-  };
 }

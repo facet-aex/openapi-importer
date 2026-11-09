@@ -266,6 +266,80 @@ paths:
     });
   });
 
+  it("embeds a self-contained closure for referenced parameters, bodies, and responses", () => {
+    const result = parseOpenApiDocument(
+      `openapi: 3.1.0
+info: { title: Referenced, version: "1" }
+components:
+  parameters:
+    ItemId:
+      in: path
+      name: itemId
+      required: true
+      schema: { $ref: "#/components/schemas/ItemId" }
+  requestBodies:
+    ItemBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Item" }
+  responses:
+    ItemResponse:
+      description: Item
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Item" }
+  schemas:
+    ItemId: { type: string, format: uuid }
+    Item:
+      type: object
+      required: [id]
+      properties:
+        id: { $ref: "#/components/schemas/ItemId" }
+        parent: { $ref: "#/components/schemas/Item" }
+paths:
+  /items/{itemId}:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    post:
+      requestBody: { $ref: "#/components/requestBodies/ItemBody" }
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+`,
+      limits,
+    );
+
+    expect(result.candidates[0]).toMatchObject({
+      normalized: {
+        inputSchema: {
+          properties: {
+            path: {
+              properties: {
+                itemId: { $ref: expect.stringMatching(/^#\/\$defs\//u) },
+              },
+            },
+            body: { $ref: expect.stringMatching(/^#\/\$defs\//u) },
+          },
+          $defs: expect.objectContaining({
+            ItemId: { type: "string", format: "uuid" },
+            Item: expect.objectContaining({ type: "object" }),
+          }),
+        },
+        outputSchema: {
+          $ref: expect.stringMatching(/^#\/\$defs\//u),
+          $defs: expect.objectContaining({
+            ItemId: { type: "string", format: "uuid" },
+            Item: expect.objectContaining({ type: "object" }),
+          }),
+        },
+      },
+      warnings: [],
+    });
+    const serialized = JSON.stringify(result.candidates[0]);
+    expect(serialized).not.toContain("#/components/");
+    expect(serialized).not.toContain("UNRESOLVED_");
+  });
+
   it("escapes JSON Pointer path segments deterministically", () => {
     const result = parseOpenApiDocument(
       `openapi: 3.1.0
