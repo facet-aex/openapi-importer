@@ -65,6 +65,8 @@ paths:
         finalUrl: "https://api.example.com/openapi.yaml",
         redirectCount: 1,
       },
+      snapshot: { content: expect.stringContaining("openapi: 3.1.0") },
+      limits: { maxDocumentBytes: 100_000, maxRedirects: 3 },
     });
   });
 
@@ -84,5 +86,55 @@ paths:
       byteLength: Buffer.byteLength(content),
     });
     expect(result.json().source.sha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(result.json().snapshot.content).toBe(content);
+  });
+
+  it("applies stricter job limits but rejects limits above deployment policy", async () => {
+    app = buildApp(config);
+    const content =
+      '{"openapi":"3.0.3","info":{"title":"Paste","version":"1"},"paths":{"/x":{"get":{}}}}';
+    const stricter = await app.inject({
+      method: "POST",
+      url: "/v1/imports/parse",
+      payload: {
+        source: { kind: "paste", content },
+        limits: {
+          maxDocumentBytes: 1_000,
+          maxYamlAliases: 5,
+          maxRedirects: 1,
+          maxReferenceDepth: 8,
+          maxReferenceCount: 20,
+          maxOperationCount: 10,
+          timeoutMs: 5_000,
+        },
+      },
+    });
+    expect(stricter.statusCode).toBe(200);
+    expect(stricter.json().limits).toMatchObject({
+      maxDocumentBytes: 1_000,
+      maxRedirects: 1,
+      timeoutMs: 5_000,
+    });
+
+    const excessive = await app.inject({
+      method: "POST",
+      url: "/v1/imports/parse",
+      payload: {
+        source: { kind: "paste", content },
+        limits: {
+          maxDocumentBytes: 100_001,
+          maxYamlAliases: 20,
+          maxRedirects: 3,
+          maxReferenceDepth: 16,
+          maxReferenceCount: 256,
+          maxOperationCount: 500,
+          timeoutMs: 10_000,
+        },
+      },
+    });
+    expect(excessive.statusCode).toBe(400);
+    expect(excessive.json()).toMatchObject({
+      error: { code: "IMPORT_LIMIT_EXCEEDS_POLICY" },
+    });
   });
 });

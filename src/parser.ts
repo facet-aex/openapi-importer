@@ -27,11 +27,16 @@ export interface ParseLimits {
 
 export interface OperationCandidate {
   candidateId: string;
+  jsonPointer: string;
   method: Uppercase<(typeof HTTP_METHODS)[number]>;
   path: string;
   operationId?: string;
   summary?: string;
   tags: string[];
+}
+
+function escapeJsonPointerSegment(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
 export interface ParseResult {
@@ -176,6 +181,7 @@ export function parseOpenApiDocument(
 
       candidates.push({
         candidateId: operationId ?? `${method.toUpperCase()} ${path}`,
+        jsonPointer: `#/paths/${escapeJsonPointerSegment(path)}/${method}`,
         method: method.toUpperCase() as OperationCandidate["method"],
         path,
         ...(operationId ? { operationId } : {}),

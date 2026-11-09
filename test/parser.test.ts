@@ -39,6 +39,7 @@ paths:
     expect(result.candidates).toEqual([
       {
         candidateId: "getForecast",
+        jsonPointer: "#/paths/~1forecast/get",
         method: "GET",
         path: "/forecast",
         operationId: "getForecast",
@@ -46,6 +47,20 @@ paths:
         tags: ["weather"],
       },
     ]);
+  });
+
+  it("escapes JSON Pointer path segments deterministically", () => {
+    const result = parseOpenApiDocument(
+      `openapi: 3.1.0
+info: { title: Pointer, version: "1" }
+paths:
+  /a~b/c:
+    post: {}
+`,
+      limits,
+    );
+
+    expect(result.candidates[0]?.jsonPointer).toBe("#/paths/~1a~0b~1c/post");
   });
 
   it("rejects unsupported Swagger 2 documents", () => {
