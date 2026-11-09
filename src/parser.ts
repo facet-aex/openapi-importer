@@ -63,24 +63,18 @@ function inspectReferences(
   root: unknown,
   limits: ParseLimits,
 ): Array<{ code: string; message: string }> {
-  const warnings: Array<{ code: string; message: string }> = [];
   const visited = new WeakSet<object>();
   let referenceCount = 0;
-
-  const visit = (value: unknown, depth: number): void => {
-    if (depth > limits.maxReferenceDepth) {
-      throw new ImportError(
-        "REFERENCE_DEPTH_EXCEEDED",
-        "The document exceeds the configured reference depth.",
-      );
-    }
-    if (typeof value !== "object" || value === null) return;
-    if (visited.has(value)) return;
+  const pending: unknown[] = [root];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value !== "object" || value === null) continue;
+    if (visited.has(value)) continue;
     visited.add(value);
 
     if (Array.isArray(value)) {
-      for (const item of value) visit(item, depth + 1);
-      return;
+      pending.push(...value);
+      continue;
     }
 
     for (const [key, child] of Object.entries(value)) {
@@ -92,19 +86,11 @@ function inspectReferences(
             "The document contains too many references.",
           );
         }
-        if (/^https?:\/\//iu.test(child)) {
-          warnings.push({
-            code: "REMOTE_REFERENCE_NOT_RESOLVED",
-            message: "A remote reference was recorded but not fetched.",
-          });
-        }
       }
-      visit(child, depth + 1);
+      pending.push(child);
     }
-  };
-
-  visit(root, 0);
-  return warnings;
+  }
+  return [];
 }
 
 export function parseOpenApiDocument(

@@ -72,18 +72,13 @@ paths:
     ).toThrowError(ImportError);
   });
 
-  it("does not fetch remote references during parse", () => {
+  it("counts remote references without resolving them in the synchronous parser", () => {
     const result = parseOpenApiDocument(
       '{"openapi":"3.0.3","info":{"title":"Remote","version":"1"},"paths":{"/x":{"get":{"responses":{"200":{"$ref":"https://example.com/response.json"}}}}}}',
       limits,
     );
 
-    expect(result.warnings).toEqual([
-      {
-        code: "REMOTE_REFERENCE_NOT_RESOLVED",
-        message: "A remote reference was recorded but not fetched.",
-      },
-    ]);
+    expect(result.warnings).toEqual([]);
     expect(JSON.stringify(result)).not.toContain("example.com/response.json");
   });
 });

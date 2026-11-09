@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ImporterConfig } from "./config.js";
 import { ImportError } from "./import-error.js";
 import { parseOpenApiDocument } from "./parser.js";
+import { resolveOpenApiReferences } from "./reference-resolver.js";
 import { fetchRemoteOpenApi } from "./remote-fetcher.js";
 
 const limitsSchema = z.object({
@@ -96,6 +97,7 @@ export function buildApp(
     );
 
     let content: string;
+    let baseUrl: string | undefined;
     let sourceMetadata: Record<string, unknown>;
     if (source.kind === "url" && typeof source.url === "string") {
       const fetched = await (dependencies.fetchRemote ?? fetchRemoteOpenApi)(
@@ -107,6 +109,7 @@ export function buildApp(
         },
       );
       content = fetched.content;
+      baseUrl = fetched.finalUrl;
       sourceMetadata = {
         kind: "url",
         sha256: fetched.sha256,
@@ -136,8 +139,18 @@ export function buildApp(
       maxReferenceCount: limits.maxReferenceCount,
       maxOperationCount: limits.maxOperationCount,
     });
+    const references = await resolveOpenApiReferences(
+      {
+        content,
+        ...(baseUrl ? { baseUrl } : {}),
+        rootByteLength: Buffer.byteLength(content, "utf8"),
+        limits,
+      },
+      dependencies.fetchRemote ?? fetchRemoteOpenApi,
+    );
     return {
       ...parsed,
+      warnings: [...parsed.warnings, ...references.warnings],
       source: sourceMetadata,
       snapshot: { content },
       limits,

@@ -20,4 +20,8 @@ npm run dev
 
 The caller may pass the import job's complete `limits` snapshot. Requested values may only tighten the configured deployment maxima; attempts to loosen them fail with `IMPORT_LIMIT_EXCEEDS_POLICY`.
 
+External `$ref` graphs are bundled for validation with `@apidevtools/json-schema-ref-parser` 16.0.6. Its built-in filesystem and HTTP resolvers are disabled. Every remote document must pass FACET's HTTPS/DNS/IP/redirect policy, all documents share one byte budget and deadline, reference count/depth are bounded, and paste/upload sources reject relative external references because they have no retrieval base. The bundled graph is currently validation-only and is not returned or exposed publicly.
+
+`npm audit` currently reports moderate findings only in the development `typescript-eslint → minimatch` toolchain, not in the importer runtime dependency path. Do not run `npm audit fix --force`; reassess and upgrade the lint toolchain separately.
+
 The local process boundary is not a production network sandbox. Before public deployment, run this service behind an explicit egress policy. Remote `$ref` resolution remains disabled; references are recorded as warnings until the shared fetch budget and provenance model are implemented. Run `npm run verify` before committing.
