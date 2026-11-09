@@ -37,7 +37,7 @@ paths:
       version: "1.0.0",
     });
     expect(result.candidates).toEqual([
-      {
+      expect.objectContaining({
         candidateId: "getForecast",
         jsonPointer: "#/paths/~1forecast/get",
         method: "GET",
@@ -45,8 +45,222 @@ paths:
         operationId: "getForecast",
         summary: "Read a forecast",
         tags: ["weather"],
-      },
+        normalized: expect.any(Object),
+        warnings: expect.any(Array),
+      }),
     ]);
+  });
+
+  it("normalizes parameters, JSON body, responses, servers, and supported auth", () => {
+    const result = parseOpenApiDocument(
+      `openapi: 3.0.3
+info: { title: Weather, version: "1" }
+servers:
+  - url: https://{region}.api.example.com/v1
+    description: Regional API
+    variables:
+      region: { default: us }
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - ApiKey: []
+  - BearerAuth: []
+paths:
+  /weather/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: locale
+        schema: { type: string }
+    get:
+      operationId: getWeather
+      parameters:
+        - in: query
+          name: locale
+          required: true
+          schema: { type: string, enum: [en, vi] }
+        - in: header
+          name: X-Trace
+          schema: { type: string, nullable: true, example: SHOULD_NOT_PERSIST }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                units: { type: string, default: SHOULD_NOT_PERSIST }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: number }
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+`,
+      limits,
+    );
+
+    expect(result.candidates[0]).toMatchObject({
+      normalized: {
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            path: {
+              type: "object",
+              additionalProperties: false,
+              properties: { id: { type: "string" } },
+              required: ["id"],
+            },
+            query: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                locale: { type: "string", enum: ["en", "vi"] },
+              },
+              required: ["locale"],
+            },
+            header: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                "X-Trace": {
+                  anyOf: [{ type: "string" }, { type: "null" }],
+                },
+              },
+            },
+            body: {
+              type: "object",
+              properties: { units: { type: "string" } },
+            },
+          },
+          required: ["path", "query", "body"],
+        },
+        outputSchema: { type: "array", items: { type: "number" } },
+        errorSchema: {
+          type: "object",
+          properties: { message: { type: "string" } },
+        },
+        servers: [
+          {
+            url: "https://{region}.api.example.com/v1",
+            description: "Regional API",
+            variables: { region: "us" },
+          },
+        ],
+        authAlternatives: [
+          {
+            schemes: [
+              {
+                schemeName: "ApiKey",
+                kind: "API_KEY_HEADER",
+                parameterName: "X-API-Key",
+              },
+            ],
+          },
+          {
+            schemes: [{ schemeName: "BearerAuth", kind: "BEARER" }],
+          },
+        ],
+        responseMetadata: {
+          successStatusCode: "200",
+          successMediaType: "application/json",
+          errorStatusCodes: ["400"],
+        },
+      },
+      warnings: [],
+    });
+    expect(JSON.stringify(result.candidates[0])).not.toContain(
+      "SHOULD_NOT_PERSIST",
+    );
+  });
+
+  it("preserves security alternatives and warns on unsupported schemes or missing schemas", () => {
+    const result = parseOpenApiDocument(
+      `openapi: 3.1.0
+info: { title: Auth, version: "1" }
+servers:
+  - url: https://root.example
+components:
+  securitySchemes:
+    ApiKey: { type: apiKey, in: query, name: key }
+    BearerAuth: { type: http, scheme: bearer }
+    OAuth: { type: oauth2, flows: {} }
+paths:
+  /status:
+    servers:
+      - url: https://path.example
+    get:
+      servers:
+        - url: https://operation.example
+      security:
+        - ApiKey: []
+          BearerAuth: []
+        - {}
+        - OAuth: []
+      responses:
+        '204': { description: Empty }
+`,
+      limits,
+    );
+
+    expect(result.candidates[0]).toMatchObject({
+      normalized: {
+        servers: [{ url: "https://operation.example", variables: {} }],
+        authAlternatives: [
+          {
+            schemes: [
+              {
+                schemeName: "ApiKey",
+                kind: "API_KEY_QUERY",
+                parameterName: "key",
+              },
+              { schemeName: "BearerAuth", kind: "BEARER" },
+            ],
+          },
+          { schemes: [] },
+          {
+            schemes: [
+              {
+                schemeName: "OAuth",
+                kind: "UNSUPPORTED",
+                sourceType: "oauth2",
+              },
+            ],
+          },
+        ],
+        outputSchema: {},
+        errorSchema: {},
+        responseMetadata: {
+          successStatusCode: "204",
+          errorStatusCodes: [],
+        },
+      },
+      warnings: [
+        expect.objectContaining({ code: "MISSING_SUCCESS_RESPONSE_SCHEMA" }),
+        expect.objectContaining({ code: "UNSUPPORTED_AUTH_SCHEME" }),
+      ],
+    });
   });
 
   it("escapes JSON Pointer path segments deterministically", () => {

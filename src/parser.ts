@@ -3,6 +3,11 @@ import { Buffer } from "node:buffer";
 import { parseDocument } from "yaml";
 
 import { ImportError } from "./import-error.js";
+import {
+  normalizeOperation,
+  type NormalizedOperation,
+  type OperationWarning,
+} from "./operation-normalizer.js";
 
 const HTTP_METHODS = [
   "get",
@@ -33,6 +38,8 @@ export interface OperationCandidate {
   operationId?: string;
   summary?: string;
   tags: string[];
+  normalized: NormalizedOperation;
+  warnings: OperationWarning[];
 }
 
 function escapeJsonPointerSegment(value: string): string {
@@ -164,6 +171,11 @@ export function parseOpenApiDocument(
       const tags = Array.isArray(operation.tags)
         ? operation.tags.filter((tag): tag is string => typeof tag === "string")
         : [];
+      const normalized = normalizeOperation({
+        document,
+        pathItem,
+        operation,
+      });
 
       candidates.push({
         candidateId: operationId ?? `${method.toUpperCase()} ${path}`,
@@ -173,6 +185,8 @@ export function parseOpenApiDocument(
         ...(operationId ? { operationId } : {}),
         ...(summary ? { summary } : {}),
         tags,
+        normalized: normalized.normalized,
+        warnings: normalized.warnings,
       });
 
       if (candidates.length > limits.maxOperationCount) {

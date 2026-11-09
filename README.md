@@ -16,7 +16,7 @@ npm ci
 npm run dev
 ```
 
-`POST /v1/imports/parse` accepts pasted/uploaded content or an HTTPS URL and returns normalized operation candidates, stable JSON Pointers, source provenance (`sha256`, byte count and URL fetch metadata), and the bounded source snapshot for the trusted Control API worker. The snapshot is an internal response field and must never be exposed by public APIs or logged. URL requests validate credentials, ports, hostnames and every IPv4/IPv6 DNS answer, pin the checked address, revalidate every redirect, reject compression, and enforce one total timeout and byte budget.
+`POST /v1/imports/parse` implements importer contract v0.6. It accepts pasted/uploaded content or an HTTPS URL and returns normalized operation candidates, stable JSON Pointers, source provenance (`sha256`, byte count and URL fetch metadata), and the bounded source snapshot for the trusted Control API worker. Each candidate contains namespaced path/query/header/cookie/body input schema, selected success/error schemas, server precedence, response metadata, security alternatives and per-operation warnings. Schema examples/defaults are removed so they cannot flow into later public manifests. The snapshot is an internal response field and must never be exposed by public APIs or logged. URL requests validate credentials, ports, hostnames and every IPv4/IPv6 DNS answer, pin the checked address, revalidate every redirect, reject compression, and enforce one total timeout and byte budget.
 
 The caller may pass the import job's complete `limits` snapshot. Requested values may only tighten the configured deployment maxima; attempts to loosen them fail with `IMPORT_LIMIT_EXCEEDS_POLICY`.
 
@@ -24,4 +24,4 @@ External `$ref` graphs are bundled for validation with `@apidevtools/json-schema
 
 `npm audit` currently reports moderate findings only in the development `typescript-eslint → minimatch` toolchain, not in the importer runtime dependency path. Do not run `npm audit fix --force`; reassess and upgrade the lint toolchain separately.
 
-The local process boundary is not a production network sandbox. Before public deployment, run this service behind an explicit egress policy. Remote `$ref` resolution remains disabled; references are recorded as warnings until the shared fetch budget and provenance model are implemented. Run `npm run verify` before committing.
+The local process boundary is not a production network sandbox. Before public deployment, run this service behind an explicit egress policy. Remote `$ref` graphs are validated through the isolated resolver, but the resolved schema closure is not yet embedded into each normalized candidate. Referenced parameters/request bodies therefore emit explicit warnings and must not be treated as publication-ready. Run `npm run verify` before committing.
