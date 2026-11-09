@@ -99,7 +99,10 @@ paths:
             schema:
               type: object
               properties:
-                units: { type: string, default: SHOULD_NOT_PERSIST }
+                units:
+                  type: string
+                  default: SHOULD_NOT_PERSIST
+                  x-secret-example: SHOULD_NOT_PERSIST
       responses:
         '200':
           description: OK

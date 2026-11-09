@@ -50,7 +50,12 @@ function normalizeSchema(value: unknown): JsonSchema {
   const nullable = value.nullable === true;
   const normalized: JsonObject = {};
   for (const [key, child] of Object.entries(value)) {
-    if (key === "nullable" || omittedSchemaKeywords.has(key)) continue;
+    if (
+      key === "nullable" ||
+      key.toLowerCase().startsWith("x-") ||
+      omittedSchemaKeywords.has(key)
+    )
+      continue;
     if (Array.isArray(child)) {
       normalized[key] = child.map((item) =>
         isObject(item) || Array.isArray(item) ? normalizeNested(item) : item,
