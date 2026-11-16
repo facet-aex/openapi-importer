@@ -1,11 +1,9 @@
-# openapi-importer instructions
+# `openapi-importer` instructions
 
-- This is a standalone repository. It must install, build and run without parent/sibling configuration or source imports.
-- Use npm only. Commit this repository's `package-lock.json`; do not join a parent workspace.
-- Treat every URL, redirect, DNS answer, YAML alias, `$ref`, extension and example as hostile.
-- Implement upload and paste even when URL import exists.
-- Apply IPv4/IPv6, DNS rebinding, redirect, byte, time, alias, reference-depth/count and operation-count limits.
-- Disable ambient proxies and do not receive control-plane/provider/payment secrets.
-- Produce normalized candidates and warnings; publication remains a control-api decision.
-- Exchange work/results through versioned contracts and authenticated service APIs, never a shared source tree.
-- Never weaken production validation by adding generic localhost allowlists for tests.
+**Owner:** Antigravity  
+**Port:** `4010`  
+**Active architectural authority:** `../docs/architecture/decisions/ADR-0015-actorbazaar-docker-and-a2a-mvp.md`
+
+## Role
+
+Isolated OpenAPI 3.0/3.1 ingestion, remote `$ref` bundling, and operation normalization worker/service used by `control-api` for `EXTERNAL_HTTP_API` Facets. Preserves all SSRF, DNS/IP pinning, byte/depth/alias budgets, and schema normalization invariants.
