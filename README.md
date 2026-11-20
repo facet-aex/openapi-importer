@@ -1,27 +1,29 @@
-# FACET OpenAPI Importer
+# FACET OpenAPI Importer (`@facet/openapi-importer`)
 
-Hostile-input OpenAPI 3.0.x/3.1.x ingestion and normalization service.
+[![FACET](https://img.shields.io/badge/FACET-facet.briandev.space-050505?style=flat-square&labelColor=DFFF4F)](https://facet.briandev.space)
+[![Layer](https://img.shields.io/badge/SECURITY-OPENAPI%20INGESTION-0D0D0D?style=flat-square&labelColor=343434)](https://github.com/facet-aex)
 
-**Phase:** 1 — active.
-**Runtime:** separate host process; no Docker requirement.
-**Boundary:** Fetch/parse/normalize only. It cannot publish Facets, read provider execution secrets or reach private/local networks by policy.
+> Isolated OpenAPI 3.0 and 3.1 ingestion, `$ref` bundling, and operation normalization service for FACET.
 
-Local process isolation is a demo boundary, not a production network-sandbox claim. This standalone npm repository owns its `package-lock.json`, limits, fetch policy, fixtures and security tests.
+## Overview
 
-## Local setup
+`openapi-importer` is a dedicated parsing and normalization microservice for **FACET**. It accepts untrusted OpenAPI URLs or uploaded YAML/JSON specifications and returns bounded, normalized operation schemas for `control-api`.
 
-```bash
-cp .env.example .env
-npm ci
-npm run dev
-```
+## Role in FACET
 
-`POST /v1/imports/parse` implements importer contract v0.6. It accepts pasted/uploaded content or an HTTPS URL and returns normalized operation candidates, stable JSON Pointers, source provenance (`sha256`, byte count and URL fetch metadata), and the bounded source snapshot for the trusted Control API worker. Each candidate contains namespaced path/query/header/cookie/body input schema, selected success/error schemas, server precedence, response metadata, security alternatives and per-operation warnings. Schema examples, defaults and unallowlisted `x-*` extensions are removed so they cannot flow into later public manifests. The snapshot is an internal response field and must never be exposed by public APIs or logged. URL requests validate credentials, ports, hostnames and every IPv4/IPv6 DNS answer, pin the checked address, revalidate every redirect, reject compression, and enforce one total timeout and byte budget.
+- **Process Isolation:** Keeps external specification fetching and recursive schema parsing separate from the main control-plane database and provider credentials.
+- **Network & Size Hardening:** Enforces strict HTTPS, DNS/IP, redirect, compression, byte-budget, and timeout limits when fetching remote specs and external `$ref` graphs.
+- **Schema Normalization:** Resolves parameter, request-body, response, and security schemes into candidate JSON Schemas while stripping unsafe defaults, examples, and extensions.
+- **Authoring Diagnostics:** Emits deterministic JSON Pointers and per-operation warnings for review before an `API` Facet is published.
 
-The caller may pass the import job's complete `limits` snapshot. Requested values may only tighten the configured deployment maxima; attempts to loosen them fail with `IMPORT_LIMIT_EXCEEDS_POLICY`.
+## Tech Stack
 
-External `$ref` graphs are bundled in memory with `@apidevtools/json-schema-ref-parser` 16.0.6. Its built-in filesystem and HTTP resolvers are disabled. Every remote document must pass FACET's HTTPS/DNS/IP/redirect policy, all documents share one byte budget and deadline, reference count/depth are bounded, and paste/upload sources reject relative external references because they have no retrieval base. Normalization resolves referenced Parameter, RequestBody, Response and security-scheme objects, then copies only reachable schema definitions into candidate-local `$defs`; recursive schemas keep local serializable references. The full bundled graph and remote documents are not returned or persisted as separate artifacts.
+| Layer | Technology |
+|---|---|
+| Runtime & HTTP | Node.js 24 (ESM), TypeScript, Fastify 5 |
+| Parsing & Validation | `@apidevtools/json-schema-ref-parser`, `yaml`, Zod |
+| Testing & Container | Vitest, ESLint, Docker (`node:24-alpine`) |
 
-`npm audit` currently reports moderate findings only in the development `typescript-eslint → minimatch` toolchain, not in the importer runtime dependency path. Do not run `npm audit fix --force`; reassess and upgrade the lint toolchain separately.
+---
 
-The local process boundary is not a production network sandbox. Before public deployment, run this service behind an explicit egress policy. A reference that cannot be resolved inside the bounded graph fails import in the route; the lower-level normalizer emits an explicit unresolved-reference warning rather than retaining an unrestricted URL. Run `npm run verify` before committing.
+Part of **[FACET](https://facet.briandev.space)** (`facet-aex`) — Federated Agent Capability Exchange & Trust on Avalanche.
